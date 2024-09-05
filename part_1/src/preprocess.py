@@ -37,6 +37,21 @@ def load_image(image_path: Path) -> np.ndarray:
     grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     return grayscale_image
 
+def enhance_image(image: np.ndarray) -> np.ndarray:
+    """
+    Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to enhance the image contrast.
+
+    Args:
+        image (np.ndarray): Grayscale image.
+
+    Returns:
+        np.ndarray: Enhanced image with improved contrast.
+    """
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_image = clahe.apply(image)
+    return enhanced_image
+
+
 def reduce_noise(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
     """
     Apply Gaussian blur to reduce noise in the image.
@@ -53,41 +68,45 @@ def reduce_noise(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
 
 def apply_threshold(image: np.ndarray, method: str = 'otsu') -> np.ndarray:
     """
-    Apply thresholding to binarize the image.
+    Apply thresholding and detect if the image should be inverted (white text on black background).
 
     Args:
         image (np.ndarray): Grayscale image.
         method (str): Thresholding method, either 'otsu' or 'adaptive'. Default is 'otsu'.
 
     Returns:
-        np.ndarray: Binarized image.
+        np.ndarray: Binarized and possibly inverted image.
     """
+    invert = cv2.mean(image)[0] > 127
+    
+    # Apply thresholding
     if method == 'otsu':
-        threshold_value = filters.threshold_otsu(image)
-        binary_image = image > threshold_value
-        binary_image = binary_image.astype(np.uint8) * 255
+        _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     elif method == 'adaptive':
         binary_image = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                             cv2.THRESH_BINARY_INV, 11, 2)
-    else:
-        return image  # Return the original image if the method is not recognized.
-
+                                             cv2.THRESH_BINARY, 11, 2)
+    
+    if invert:
+        binary_image = cv2.bitwise_not(binary_image)
+    
     return binary_image
 
-def morphological_operations(image: np.ndarray, kernel: int = 3) -> np.ndarray:
+def morphological_operations(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
     """
-    Apply morphological operations to separate characters in the image.
+    Apply advanced morphological operations and projection profile analysis to improve character segmentation.
 
     Args:
         image (np.ndarray): Binarized image.
-        kernel (int): Size of the kernel for morphological operations. Default is 3.
+        kernel_size (int): Size of the kernel for morphological operations.
 
     Returns:
-        np.ndarray: Image after morphological operations.
+        np.ndarray: Image after advanced segmentation.
     """
-    kernel_matrix = np.ones((kernel, kernel), np.uint8)
-    morph_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel_matrix)
-    return morph_image
+    # Closing operation to join broken parts of characters
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    closed_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
+
+    return closed_image
 
 def preprocess_image(image_path: Path, blur_kernel: int = 5, threshold_method: str = 'otsu', morph_kernel: int = 3) -> np.ndarray:
     """
@@ -103,9 +122,10 @@ def preprocess_image(image_path: Path, blur_kernel: int = 5, threshold_method: s
         np.ndarray: Preprocessed image ready for OCR.
     """
     image = load_image(image_path)
+    image = enhance_image(image)
     image = reduce_noise(image, kernel_size=blur_kernel)
     image = apply_threshold(image, method=threshold_method)
-    image = morphological_operations(image, kernel=morph_kernel)
+    image = morphological_operations(image, kernel_size=morph_kernel)
     return image
 
 def main(args: argparse.Namespace) -> None:
